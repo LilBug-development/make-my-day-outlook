@@ -59,12 +59,15 @@
   }
   .flags input { width: 16px; height: 16px; accent-color: var(--ink); }
   .from { margin: 12px 0 0; font-size: 12px; color: var(--muted); word-break: break-word; }
-  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  /* Stacked, full width: side by side in a narrow pane, the longer label
+     took the room and squeezed the main button. */
+  .buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .buttons button { width: 100%; }
   button {
     font: 600 14px/1 Figtree, system-ui, sans-serif; border-radius: 10px; padding: 11px 14px;
     cursor: pointer; border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
   }
-  button.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); flex: 1; }
+  button.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
   button:disabled { opacity: 0.5; cursor: default; }
   .link { background: none; border: 0; padding: 8px 0; color: var(--muted); font-weight: 500; }
   #toast {
