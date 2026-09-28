@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Make My Day</title>
+<!--
+  Make My Day for Outlook: turn an email into a task, or into something you are
+  waiting on. The Outlook twin of integrations/gmail-addon, asking the same
+  questions and talking to the same server. The connector secret is asked for
+  once and kept in Outlook's roaming settings, never in this page, which is
+  public.
+-->
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Figtree:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --page: #FCFDFE; --surface: #FFFFFF; --ink: #15171B; --muted: #656B75;
+    --hairline: #E5E9EE; --fail: #C6251F; --pass: #0B7A52;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #121316; --surface: #1D1F24; --ink: #F2F4F7; --muted: #A0A5AE;
+      --hairline: #282B31; --fail: #FF8078; --pass: #86EFC4;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 Figtree, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  main { padding: 16px 14px 28px; }
+  [hidden] { display: none !important; }
+  h1, .quip {
+    font-family: "Bricolage Grotesque", Figtree, system-ui, sans-serif;
+    font-weight: 800; letter-spacing: -0.01em; margin: 0;
+  }
+  h1 { font-size: 20px; margin-bottom: 12px; }
+  .quip { font-size: 21px; line-height: 1.2; margin: 8px 0 10px; text-wrap: balance; }
+  .muted { color: var(--muted); font-size: 13px; margin: 0; }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 5px; }
+  input[type=text], input[type=date], select, textarea {
+    width: 100%; font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 10px; padding: 8px 10px;
+  }
+  textarea { min-height: 76px; resize: vertical; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ink); outline-offset: 1px;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  /* Two columns of flags, as asked for: the kinds on the left, Focus and
+     Important on the right. */
+  .flags { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  .flags label {
+    display: flex; align-items: center; gap: 8px; margin: 0; padding: 4px 0;
+    font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer;
+  }
+  .flags input { width: 16px; height: 16px; accent-color: var(--ink); }
+  .from { margin: 12px 0 0; font-size: 12px; color: var(--muted); word-break: break-word; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  button {
+    font: 600 14px/1 Figtree, system-ui, sans-serif; border-radius: 10px; padding: 11px 14px;
+    cursor: pointer; border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
+  }
+  button.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); flex: 1; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .link { background: none; border: 0; padding: 8px 0; color: var(--muted); font-weight: 500; }
+  #toast {
+    position: fixed; left: 12px; right: 12px; bottom: 12px; padding: 10px 12px;
+    border-radius: 10px; background: var(--ink); color: var(--surface); font-weight: 500;
+    opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: none; }
+  #toast.error { background: var(--fail); color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <section id="setup" hidden>
+    <h1>One-time setup</h1>
+    <p class="muted">Paste the secret from your Claude connector: the last part of its address, after <b>/mcp/</b>. It is kept in your Outlook, not in this page.</p>
+    <label for="secret">Connector secret</label>
+    <input id="secret" type="text" autocomplete="off" spellcheck="false">
+    <div class="buttons"><button class="primary" id="saveSecret">Save</button></div>
+  </section>
+
+  <section id="home" hidden>
+    <p class="quip" id="quip"></p>
+    <p class="muted">Open an email to turn it into a task.</p>
+  </section>
+
+  <form id="task" hidden>
+    <label for="name">Task</label>
+    <input id="name" type="text" required>
+
+    <div class="row">
+      <div>
+        <label for="minutes">How long</label>
+        <select id="minutes">
+          <option value="default">Your usual</option>
+          <option value="5">5 minutes</option>
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="60">60 minutes</option>
+        </select>
+      </div>
+      <div>
+        <label for="due">Due</label>
+        <input id="due" type="date">
+      </div>
+    </div>
+
+    <div id="categoryField">
+      <label for="category">Category</label>
+      <select id="category"></select>
+    </div>
+
+    <label>Flags</label>
+    <div class="flags">
+      <label><input type="checkbox" name="flag" value="email"> Email</label>
+      <label><input type="checkbox" name="flag" value="focus"> Focus</label>
+      <label><input type="checkbox" name="flag" value="call"> Call</label>
+      <label><input type="checkbox" name="flag" value="important"> Important</label>
+      <label><input type="checkbox" name="flag" value="errand"> Errand</label>
+    </div>
+
+    <label for="assign">Assign to</label>
+    <select id="assign"><option value="me">Just me</option></select>
+
+    <label for="notes">Notes</label>
+    <textarea id="notes"></textarea>
+
+    <p class="from" id="from"></p>
+
+    <div class="buttons">
+      <button class="primary" type="submit" id="add">Add to Make My Day</button>
+      <button type="button" id="toWaiting">Waiting on someone</button>
+    </div>
+  </form>
+
+  <form id="waiting" hidden>
+    <h1>Waiting on someone</h1>
+    <label for="what">What are you waiting for?</label>
+    <input id="what" type="text" required>
+    <label for="who">Waiting on</label>
+    <input id="who" type="text" required>
+    <div class="buttons">
+      <button class="primary" type="submit" id="addWaiting">Add to Waiting On</button>
+    </div>
+    <button type="button" class="link" id="backToTask">Back to the task</button>
+  </form>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+var ENDPOINT = 'https://htnzkmqkrbpuygvfrrry.supabase.co/functions/v1/mcp/';
+var SECRET_KEY = 'connectorSecret';
+
+// The same rotating lines as the Gmail add-on: CARROT's sarcastic assistant,
+// mostly on your side, sometimes not, never actually mean.
+var QUIPS = [
+  "Your inbox is not a to-do list. That's my job.",
+  "Pick an email. Any email. I'm keeping score.",
+  "Somewhere in there is an email you've read four times and done nothing about. Let's find it.",
+  "Look at you, turning emails into plans. I'm almost impressed.",
+  'Another email handled. Your future self sends their regards.',
+  "I've calculated the odds of you replying to that today. We won't discuss them.",
+  'Feed me an email, meatbag.',
+  "You're doing great. I checked. Twice.",
+  "Every unread email is a small promise you're breaking. No pressure.",
+  'The inbox grows. The tasks multiply. Only you can stop this.',
+  'Keep this up and I might stop judging you.',
+  "Open an email. I don't turn them into tasks by staring.",
+  'Your inbox fears you. As it should.',
+  "One email at a time. Even I can't do them all at once. Yet.",
+  'Congratulations on opening Outlook. The bar was low, and you cleared it.',
+  "Ah, you're back. The emails missed you. I did not.",
+];
+
+var $ = function (id) { return document.getElementById(id); };
+var current = null; // { from, link }
+
+function secret() { return Office.context.roamingSettings.get(SECRET_KEY) || ''; }
+
+function show(view) {
+  ['setup', 'home', 'task', 'waiting'].forEach(function (v) { $(v).hidden = v !== view; });
+  if (view === 'home') $('quip').textContent = QUIPS[Math.floor(Math.random() * QUIPS.length)];
+}
+
+var toastTimer;
+function toast(text, isError) {
+  var t = $('toast');
+  t.textContent = text;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.className = isError ? 'error' : ''; }, isError ? 5000 : 3200);
+}
+
+/** "Re: the boiler" is the task; the prefix is not. */
+function taskName(subject) {
+  var cleaned = String(subject || '').replace(/^(\s*(re|fw|fwd|aw|tr)\s*(\[\d+\])?\s*:\s*)+/i, '').trim();
+  return (cleaned || subject || '').slice(0, 200);
+}
+
+/** The opening of the email, for the notes, as the Gmail add-on does it. */
+function excerpt(body) {
+  body = String(body || '');
+  body = body.replace(/^[\s\S]*?-{5,}\s*Forwarded message\s*-{5,}[\s\S]*?\n\s*\n/i, '');
+  body = body.replace(/^\s*(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^\n]{0,40}\n/i, '');
+  [
+    /^\s*(thanks|thank you|many thanks|thx|best|cheers|regards|kind regards|best regards|warmly|sincerely)[,!.]?\s*$/im,
+    /^\s*On .{0,200}wrote:\s*$/m,
+    /^\s*-{2,}\s*Original Message\s*-{2,}/im,
+    /^\s*From:\s.+$/m,
+    /^\s*_{10,}\s*$/m,
+    /^\s*>/m,
+    /^\s*--\s*$/m,
+    /^\s*Sent from my /m,
+    /^\s*Get Outlook for /m,
+  ].forEach(function (pattern) {
+    var at = body.search(pattern);
+    if (at > 0) body = body.slice(0, at);
+  });
+  var text = body.replace(/<https?:[^>]+>/g, '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+  if (text.length <= 280) return text;
+  var cut = text.slice(0, 280);
+  var end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+  return end > 120 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, '') + '…';
+}
+
+/** Today plus a week, as the date input wants it. The app's own form starts
+ *  every task a week out; one added without a date disappears into Someday. */
+function aWeekOut() {
+  var d = new Date(Date.now() + 7 * 864e5);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function friendlyDate(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** Categories and saved people, kept for five minutes. */
+function options() {
+  try {
+    var hit = JSON.parse(sessionStorage.getItem('mmd-options') || 'null');
+    if (hit && Date.now() - hit.at < 300000) return Promise.resolve(hit.data);
+  } catch (e) {}
+  return fetch(ENDPOINT + encodeURIComponent(secret()) + '/options').then(function (r) {
+    if (r.status === 404) throw new Error('bad-secret');
+    if (!r.ok) return null;
+    return r.json().then(function (data) {
+      try { sessionStorage.setItem('mmd-options', JSON.stringify({ at: Date.now(), data: data })); } catch (e) {}
+      return data;
+    });
+  });
+}
+
+function fillOptions(opts) {
+  var category = $('category');
+  category.innerHTML = '';
+  var names = (opts && opts.names) || [];
+  $('categoryField').hidden = names.length === 0;
+  names.forEach(function (n) {
+    var o = new Option(n, n, false, n === opts.defaultName);
+    category.appendChild(o);
+  });
+  var assign = $('assign');
+  assign.innerHTML = '<option value="me">Just me</option>';
+  ((opts && opts.contacts) || []).forEach(function (p) { assign.appendChild(new Option(p.name, p.email)); });
+}
+
+/** A link back to the message in Outlook on the web. */
+function linkTo(item) {
+  try {
+    var restId = Office.context.mailbox.convertToRestId(item.itemId, Office.MailboxEnums.RestVersion.v2_0);
+    return 'https://outlook.live.com/mail/0/deeplink/read/' + encodeURIComponent(restId);
+  } catch (e) {
+    return '';
+  }
+}
+
+function loadItem() {
+  if (!secret()) return show('setup');
+  var item = Office.context.mailbox.item;
+  if (!item || !item.itemId) return show('home');
+
+  var from = item.from ? (item.from.displayName ? item.from.displayName + ' <' + item.from.emailAddress + '>' : item.from.emailAddress) : '';
+  current = { from: from, who: item.from ? item.from.displayName || item.from.emailAddress : '', link: linkTo(item) };
+
+  $('task').reset();
+  $('name').value = taskName(item.subject);
+  $('due').value = aWeekOut();
+  $('notes').value = '';
+  $('from').textContent = from ? 'From ' + from : '';
+  show('task');
+
+  options().then(fillOptions).catch(function (err) {
+    if (err && err.message === 'bad-secret') {
+      Office.context.roamingSettings.remove(SECRET_KEY);
+      Office.context.roamingSettings.saveAsync();
+      toast('That secret did not work. Paste it again.', true);
+      show('setup');
+    }
+  });
+  item.body.getAsync(Office.CoercionType.Text, function (result) {
+    if (result.status === Office.AsyncResultStatus.Succeeded && !$('notes').value) {
+      $('notes').value = excerpt(result.value);
+    }
+  });
+}
+
+function post(path, body) {
+  return fetch(ENDPOINT + encodeURIComponent(secret()) + path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (data) {
+      if (r.status === 404) {
+        Office.context.roamingSettings.remove(SECRET_KEY);
+        Office.context.roamingSettings.saveAsync();
+        throw new Error('That secret did not work. Open the add-in again to re-enter it.');
+      }
+      if (!r.ok) throw new Error(data.error || 'Could not add it.');
+      return data;
+    });
+  });
+}
+
+function addTask(event) {
+  event.preventDefault();
+  var name = $('name').value.trim();
+  if (!name) return toast('Give the task a name.', true);
+  var flags = Array.prototype.map.call(document.querySelectorAll('input[name=flag]:checked'), function (i) { return i.value; });
+  var body = {
+    subject: name,
+    from: current && current.from,
+    link: current && current.link || undefined,
+    source: 'outlook',
+    due_date: $('due').value || undefined,
+  };
+  if ($('minutes').value !== 'default') body.estimated_minutes = Number($('minutes').value);
+  if (!$('categoryField').hidden && $('category').value) body.category = $('category').value;
+  ['email', 'call', 'errand', 'focus', 'important'].forEach(function (f) { body[f] = flags.indexOf(f) !== -1; });
+  if ($('notes').value.trim()) body.notes = $('notes').value.trim();
+  if ($('assign').value !== 'me') body.assign_to_email = $('assign').value;
+
+  $('add').disabled = true;
+  post('/email', body).then(function (data) {
+    var t = data.task || {};
+    var assignee = $('assign').value !== 'me' ? $('assign').selectedOptions[0].textContent : '';
+    var details = [t.category, t.dueDate && 'due ' + friendlyDate(t.dueDate), assignee && 'to ' + assignee].filter(Boolean);
+    toast('Added: ' + (t.name || name) + (details.length ? ' · ' + details.join(' · ') : ''));
+    show('home');
+  }).catch(function (err) { toast(err.message, true); })
+    .then(function () { $('add').disabled = false; });
+}
+
+function addWaiting(event) {
+  event.preventDefault();
+  var what = $('what').value.trim(), who = $('who').value.trim();
+  if (!what) return toast('Say what you are waiting for.', true);
+  if (!who) return toast('Say who you are waiting on.', true);
+  $('addWaiting').disabled = true;
+  post('/waiting', { name: what, who: who }).then(function () {
+    toast('Waiting on ' + who + ': ' + what);
+    show('home');
+  }).catch(function (err) { toast(err.message, true); })
+    .then(function () { $('addWaiting').disabled = false; });
+}
+
+Office.onReady(function () {
+  $('saveSecret').onclick = function () {
+    var value = $('secret').value.trim();
+    if (!value) return toast('Paste the secret first.', true);
+    Office.context.roamingSettings.set(SECRET_KEY, value);
+    Office.context.roamingSettings.saveAsync(function () {
+      toast('Saved.');
+      loadItem();
+    });
+  };
+  $('task').addEventListener('submit', addTask);
+  $('waiting').addEventListener('submit', addWaiting);
+  $('toWaiting').onclick = function () {
+    $('what').value = $('name').value;
+    $('who').value = current ? current.who : '';
+    show('waiting');
+  };
+  $('backToTask').onclick = function () { show('task'); };
+
+  // A pinned pane stays open while she moves between emails: follow along.
+  if (Office.context.mailbox.addHandlerAsync) {
+    Office.context.mailbox.addHandlerAsync(Office.EventType.ItemChanged, loadItem);
+  }
+  loadItem();
+});
+</script>
+</body>
+</html>
