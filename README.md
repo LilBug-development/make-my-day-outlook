@@ -1,6 +1,6 @@
-# Make My Day for Outlook
+# Over Coffee for Outlook
 
-The page Outlook loads for the Make My Day add-in, served by GitHub Pages.
+The page Outlook loads for the Over Coffee add-in, served by GitHub Pages.
 It holds no secret and no data: the connector secret is entered once in
 Outlook and kept in Outlook's own roaming settings.
 
